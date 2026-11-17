@@ -14,6 +14,10 @@ const crypto = require("crypto");
 const multer = require("multer");
 
 const app = express();
+
+// Trust Render's reverse proxy so secure session cookies work over HTTPS.
+app.set("trust proxy", 1);
+
 const PORT = process.env.PORT || 3000;
 
 if (!process.env.MONGODB_URI) {
