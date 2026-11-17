@@ -411,6 +411,37 @@ async function startServer() {
             }
         );
 
+        // LIST STUDENTS: ADMIN ONLY
+        app.get(
+            "/api/students",
+            requireRole("admin"),
+            async (req, res) => {
+                try {
+                    const students = await users
+                        .find(
+                            { role: "student" },
+                            { projection: { passwordHash: 0 } }
+                        )
+                        .sort({ name: 1 })
+                        .toArray();
+
+                    res.json(students.map(publicUser));
+                } catch (error) {
+                    console.error("List students error:", error);
+
+                    res.status(500).json({
+                        message: "Failed to retrieve students."
+                    });
+                }
+            }
+        );
+
+        // LIST TECHNICIANS: ADMIN ONLY
+        app.get(
+            "/api/technicians",
+            requireRole("admin"),
+
+
         // LIST TECHNICIANS: ADMIN ONLY
         app.get(
             "/api/technicians",
