@@ -411,6 +411,7 @@ async function startServer() {
             }
         );
 
+        
         // LIST STUDENTS: ADMIN ONLY
         app.get(
             "/api/students",
@@ -440,6 +441,27 @@ async function startServer() {
         app.get(
             "/api/technicians",
             requireRole("admin"),
+            async (req, res) => {
+                try {
+                    const technicians = await users
+                        .find(
+                            { role: "maintenance_staff" },
+                            { projection: { passwordHash: 0 } }
+                        )
+                        .sort({ name: 1 })
+                        .toArray();
+
+                    res.json(technicians.map(publicUser));
+                } catch (error) {
+                    console.error("List technicians error:", error);
+
+                    res.status(500).json({
+                        message: "Failed to retrieve technicians."
+                    });
+                }
+            }
+        );
+
 
 
         // LIST TECHNICIANS: ADMIN ONLY
