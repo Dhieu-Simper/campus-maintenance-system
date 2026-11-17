@@ -4,6 +4,7 @@
 const AUTH_URL = "/api/auth";
 const API_URL = "/api/requests";
 const TECHNICIANS_URL = "/api/technicians";
+const STUDENTS_URL = "/api/students";
 
 const MAX_PHOTO_SIZE = 5 * 1024 * 1024;
 const ALLOWED_PHOTO_TYPES = [
@@ -64,15 +65,25 @@ const technicianSpecialization =
     document.getElementById("technicianSpecialization");
 const technicianMessage = document.getElementById("technicianMessage");
 
+// Student management elements
+const studentManagementSection =
+    document.getElementById("studentManagementSection");
+const studentsTableBody =
+    document.getElementById("studentsTableBody");
+const studentsMessage =
+    document.getElementById("studentsMessage");
+const refreshStudentsButton =
+    document.getElementById("refreshStudentsButton");
+
 let allRequests = [];
 let allTechnicians = [];
+let allStudents = [];
 let currentUserData = null;
 let photoPreviewUrl = null;
 
 async function apiRequest(url, options = {}) {
     const headers = { ...(options.headers || {}) };
 
-    // FormData must set its own multipart Content-Type boundary.
     if (
         options.body &&
         !(options.body instanceof FormData) &&
@@ -140,13 +151,8 @@ function clearPhotoPreview() {
         photoPreviewUrl = null;
     }
 
-    if (issuePhotoInput) {
-        issuePhotoInput.value = "";
-    }
-
-    if (issuePhotoPreview) {
-        issuePhotoPreview.removeAttribute("src");
-    }
+    if (issuePhotoInput) issuePhotoInput.value = "";
+    if (issuePhotoPreview) issuePhotoPreview.removeAttribute("src");
 
     if (issuePhotoPreviewContainer) {
         issuePhotoPreviewContainer.hidden = true;
@@ -165,10 +171,7 @@ function updatePhotoPreview() {
 
     if (!ALLOWED_PHOTO_TYPES.includes(file.type)) {
         clearPhotoPreview();
-        showPhotoMessage(
-            "Choose a JPG, PNG, or WebP image.",
-            true
-        );
+        showPhotoMessage("Choose a JPG, PNG, or WebP image.", true);
         return;
     }
 
@@ -181,12 +184,9 @@ function updatePhotoPreview() {
         return;
     }
 
-    if (photoPreviewUrl) {
-        URL.revokeObjectURL(photoPreviewUrl);
-    }
+    if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
 
     photoPreviewUrl = URL.createObjectURL(file);
-
     issuePhotoPreview.src = photoPreviewUrl;
     issuePhotoPreviewContainer.hidden = false;
 
@@ -258,8 +258,6 @@ function createCell(value) {
 
 function createPhotoCell(request) {
     const cell = document.createElement("td");
-
-    // The backend should return imageUrl for requests with an uploaded photo.
     const imageUrl = request.imageUrl;
 
     if (!imageUrl) {
@@ -345,10 +343,8 @@ function createAssignmentControls(request) {
     select.setAttribute("aria-label", "Assign technician");
 
     const unassignedOption = document.createElement("option");
-
     unassignedOption.value = "";
     unassignedOption.textContent = "Select technician";
-
     select.appendChild(unassignedOption);
 
     allTechnicians.forEach(technician => {
@@ -379,15 +375,12 @@ function createAssignmentControls(request) {
             assignButton.disabled = true;
 
             try {
-                await apiRequest(
-                    `${API_URL}/${request._id}/assign`,
-                    {
-                        method: "PUT",
-                        body: JSON.stringify({
-                            technicianId: select.value
-                        })
-                    }
-                );
+                await apiRequest(`${API_URL}/${request._id}/assign`, {
+                    method: "PUT",
+                    body: JSON.stringify({
+                        technicianId: select.value
+                    })
+                });
 
                 showMessage("Technician assigned successfully!");
                 await loadRequests();
@@ -450,7 +443,6 @@ function displayRequests(requests) {
 
         row.appendChild(cell);
         requestsTableBody.appendChild(row);
-
         return;
     }
 
@@ -466,10 +458,7 @@ function displayRequests(requests) {
         row.appendChild(createCell(request.studentId));
         row.appendChild(createCell(request.hostelId));
         row.appendChild(createCell(request.issue));
-
-        // NEW: Show the uploaded photo when one exists.
         row.appendChild(createPhotoCell(request));
-
         row.appendChild(createCell(request.priority));
 
         const statusCell = document.createElement("td");
@@ -516,18 +505,13 @@ function displayRequests(requests) {
         const actionCell = document.createElement("td");
 
         if (canDelete) {
-            const deleteButton = createButton(
+            actionCell.appendChild(createButton(
                 "Delete",
                 "btn-delete",
                 async event => {
-                    await deleteRequest(
-                        request._id,
-                        event.currentTarget
-                    );
+                    await deleteRequest(request._id, event.currentTarget);
                 }
-            );
-
-            actionCell.appendChild(deleteButton);
+            ));
         } else if (role === "student") {
             actionCell.textContent = "View only";
         } else {
@@ -575,7 +559,6 @@ async function loadTechnicians() {
             : [];
     } catch (error) {
         allTechnicians = [];
-
         console.error("Could not load technicians:", error);
 
         showMessage(
@@ -585,9 +568,93 @@ async function loadTechnicians() {
     }
 }
 
+// STUDENT MANAGEMENT
+function displayStudents(students) {
+    if (!studentsTableBody) return;
+
+    studentsTableBody.replaceChildren();
+
+    if (!students.length) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+
+        cell.colSpan = 4;
+        cell.textContent = "No registered students found.";
+
+        row.appendChild(cell);
+        studentsTableBody.appendChild(row);
+        return;
+    }
+
+    students.forEach(student => {
+        const row = document.createElement("tr");
+
+        row.appendChild(createCell(student.studentId));
+        row.appendChild(createCell(student.name));
+        row.appendChild(createCell(student.email));
+
+        row.appendChild(createCell(
+            student.createdAt
+                ? new Date(student.createdAt).toLocaleDateString()
+                : "Not available"
+        ));
+
+        studentsTableBody.appendChild(row);
+    });
+}
+
+async function loadStudents() {
+    if (currentUserData?.role !== "admin") return;
+
+    if (!studentsTableBody || !studentsMessage) {
+        console.error(
+            "Student management HTML section is missing from index.html."
+        );
+        return;
+    }
+
+    studentsMessage.textContent = "Loading students...";
+
+    if (refreshStudentsButton) {
+        refreshStudentsButton.disabled = true;
+    }
+
+    try {
+        const students = await apiRequest(STUDENTS_URL);
+
+        allStudents = Array.isArray(students) ? students : [];
+
+        displayStudents(allStudents);
+
+        studentsMessage.textContent =
+            `Total registered students: ${allStudents.length}`;
+    } catch (error) {
+        console.error("Could not load students:", error);
+
+        studentsMessage.textContent =
+            `Could not load students: ${error.message}`;
+
+        studentsTableBody.replaceChildren();
+
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+
+        cell.colSpan = 4;
+        cell.textContent = error.message;
+
+        row.appendChild(cell);
+        studentsTableBody.appendChild(row);
+    } finally {
+        if (refreshStudentsButton) {
+            refreshStudentsButton.disabled = false;
+        }
+    }
+}
+
 async function loadDashboardData() {
     if (currentUserData?.role === "admin") {
         await loadTechnicians();
+        await loadStudents();
     }
 
     await loadRequests();
@@ -681,13 +748,17 @@ function showDashboard(user) {
             ? "Report campus problems and track your own requests."
             : isTechnician
                 ? "View your assigned maintenance jobs and update their progress."
-                : "Manage campus requests, create technician accounts, and assign repair jobs.";
+                : "Manage campus requests, students, create technician accounts, and assign repair jobs.";
 
     document.getElementById("technicianGuidance").hidden =
         !isTechnician;
 
     if (technicianManagementSection) {
         technicianManagementSection.hidden = !isAdmin;
+    }
+
+    if (studentManagementSection) {
+        studentManagementSection.hidden = !isAdmin;
     }
 
     const statisticCopy = isTechnician
@@ -744,15 +815,8 @@ function showDashboard(user) {
             : "Access";
 
     if (technicianForm) {
-        technicianForm.removeEventListener(
-            "submit",
-            createTechnician
-        );
-
-        technicianForm.addEventListener(
-            "submit",
-            createTechnician
-        );
+        technicianForm.removeEventListener("submit", createTechnician);
+        technicianForm.addEventListener("submit", createTechnician);
     }
 
     loadDashboardData();
@@ -762,6 +826,7 @@ function showLoginScreen() {
     currentUserData = null;
     allRequests = [];
     allTechnicians = [];
+    allStudents = [];
 
     clearPhotoPreview();
 
@@ -773,6 +838,14 @@ function showLoginScreen() {
         technicianManagementSection.hidden = true;
     }
 
+    if (studentManagementSection) {
+        studentManagementSection.hidden = true;
+    }
+
+    if (studentsTableBody) {
+        studentsTableBody.replaceChildren();
+    }
+
     authForm.reset();
     authMode.value = "login";
 
@@ -782,7 +855,6 @@ function showLoginScreen() {
 async function checkExistingSession() {
     try {
         const result = await apiRequest(`${AUTH_URL}/me`);
-
         showDashboard(result.user);
     } catch {
         showLoginScreen();
@@ -864,18 +936,12 @@ requestForm.addEventListener("submit", async event => {
 
     if (photo) {
         if (!ALLOWED_PHOTO_TYPES.includes(photo.type)) {
-            showPhotoMessage(
-                "Choose a JPG, PNG, or WebP image.",
-                true
-            );
+            showPhotoMessage("Choose a JPG, PNG, or WebP image.", true);
             return;
         }
 
         if (photo.size > MAX_PHOTO_SIZE) {
-            showPhotoMessage(
-                "The image must not exceed 5 MB.",
-                true
-            );
+            showPhotoMessage("The image must not exceed 5 MB.", true);
             return;
         }
     }
@@ -931,11 +997,9 @@ async function updateRequestStatus(id, newStatus, button) {
         });
 
         showMessage("Request status updated successfully!");
-
         await loadRequests();
     } catch (error) {
         showMessage(error.message, true);
-
         await loadRequests();
     } finally {
         button.disabled = false;
@@ -943,11 +1007,7 @@ async function updateRequestStatus(id, newStatus, button) {
 }
 
 async function deleteRequest(id, button) {
-    if (
-        !confirm(
-            "Are you sure you want to delete this maintenance request?"
-        )
-    ) {
+    if (!confirm("Are you sure you want to delete this maintenance request?")) {
         return;
     }
 
@@ -959,7 +1019,6 @@ async function deleteRequest(id, button) {
         });
 
         showMessage("Maintenance request deleted successfully!");
-
         await loadRequests();
     } catch (error) {
         showMessage(error.message, true);
@@ -976,9 +1035,12 @@ resetFilters.addEventListener("click", () => {
     searchInput.value = "";
     statusFilter.value = "All";
     priorityFilter.value = "All";
-
     filterRequests();
 });
+
+if (refreshStudentsButton) {
+    refreshStudentsButton.addEventListener("click", loadStudents);
+}
 
 updateAuthForm();
 checkExistingSession();
